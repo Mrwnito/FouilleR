@@ -1,0 +1,336 @@
+---
+title: "<FONT color='#0066CC'><FONT size = 4 ><DIV align= center> Projet 1 : Classification bayésienne </DIV></FONT></FONT>"
+output:
+    html_document:
+      highlight: textmate #,, , , espresso, , , , and  default  tango  pygments monochrome  kate zenburn haddock  
+      theme:   readable  # , , flatly, , , spacelab, united, cosmo, lumen, paper, sandstone, simplex,  yeti default cerulean journal    darkl    
+      toc: yes
+      toc_depth: 6
+      toc_float: true
+---
+
+```{=html}
+<style type="text/css">
+body, td {font-size: 17px;}
+code.r{font-size: 5px;}
+pre { font-size: 15px;}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+<hr style="border: 1px  solid gray">
+
+</hr>
+
+Résumé : Nous développerons un projet de classification bayésienne en utilisant l'ensemble de 
+données sur les émotions (Kaggle) en plusieurs étapes. Nous allons employer une série de prétraitement plus complexes et éventuellement étendre l'approche bayésienne pour inclure des 
+ajustements (tuning) ou des probabilité supplémentaires.
+
+Objectif principal : Développer un classificateur bayésien pour prédire les émotions à partir de 
+données textuelles.
+
+Source des données : Jeu de données sur les émotions.
+
+<hr style="border: 1px  solid gray">
+
+#### <FONT color='#000033'> 1.  Chargement et exploration des données :  </FONT>
+ 
+## Chargez le jeu de données dans R.
+Assurons nous que nous disposons d’un environnement propre en R :
+```{r}
+rm(list = ls())
+```
+Chargement des bibliothèques nécessaires :
+```{r}
+library("tidyverse")
+library("text")
+library("kableExtra")
+library("e1071")
+library("tm")
+library("wordcloud")
+library("caret")
+library("text")
+library("tidytext")
+library("spacyr")
+library("text2vec")
+```
+Chargement des données
+```{r}
+setwd('C:\\Users\\gdaie\\Documents\\Fouilles_donnee_R\\Mini-Projets\\projet_1')
+data <- read.csv("Emotion_classify_Data.csv", stringsAsFactors = FALSE)
+```
+Affichage des 10 premières lignes du dataset
+```{r}
+head(data, 10)
+```
+
+## Effectuez une analyse exploratoire des données (EDA) pour comprendre la distribution des classes, la longueur des entrées de texte et tout autre modèle.
+Aperçu Général des Données
+```{r}
+summary(data)
+str(data)
+```
+
+Analysons la distribution des différentes émotions dans le dataset.
+
+```{r}
+table(data$Emotion)  
+barplot(table(data$Emotion), main="Distribution des Émotions", xlab="Émotions", ylab="Fréquence")
+```
+
+Calculons la longueur des entrées de texte.
+
+```{r}
+data$textLength <- sapply(data$Comment, nchar)
+length(data$textLength) == nrow(data)
+summary(data$textLength)
+hist(data$textLength, main="Distribution de la Longueur des Textes", xlab="Longueur", ylab="Fréquence")
+```
+#### <FONT color='#000033'> 2.  Prétraitement des données :  </FONT>
+Identifions les mots les plus fréquents dans le dataset.
+
+```{r}
+# Création d'un corpus à partir de la colonne 'Comment' de votre dataframe
+corpus <- VCorpus(VectorSource(data$Comment))
+```
+
+```{r}
+# Création d'une matrice de termes par document (TermDocumentMatrix) à partir du corpus
+dtm <- TermDocumentMatrix(corpus)
+```
+```{r}
+# Conversion de la matrice de termes en une matrice standard pour un traitement plus facile
+m <- as.matrix(dtm)
+```
+```{r}
+# Convertir la TermDocumentMatrix en dataframe
+text_data <- as.data.frame(m)
+colnames(text_data) <- make.names(colnames(text_data))
+nrow(text_data)
+length(data$Emotion)
+
+
+```
+```{r}
+# Calcul des fréquences des mots et tri par ordre décroissant
+word_freqs <- sort(rowSums(m), decreasing=TRUE)
+```
+```{r}
+# Création d'un nuage de mots avec les 100 mots les plus fréquents
+wordcloud(names(word_freqs), word_freqs, max.words=100)
+```
+
+2eme tentative de pretraitrement
+```{r}
+spacy_initialize(model = "en_core_web_sm")
+```
+
+```{r}
+stopWords2 <- c(stopwords("english"), 'feel', 'feeling', 'really', 'time', 'im', 'know', 'make', 'little')
+
+# Fonction de prétraitement avec lemmatisation
+preprocess <- function(text) {
+  # Création d'un corpus
+  corpus <- VCorpus(VectorSource(text))  
+  # Nettoyage des données
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, removeWords, stopWords2)
+
+  # Lemmatisation avec spacyr
+  lemmatized_text <- sapply(corpus, function(x) {
+    parsed <- spacy_parse(as.character(x), lemma = TRUE)
+    paste(parsed$lemma, collapse = " ")
+  })
+
+  return(lemmatized_text)
+}
+
+# Appliquer la fonction de prétraitement
+data$preprocessed_comment <- sapply(data$Comment, preprocess)
+
+```
+```{r}
+data$Emotion_num <- match(data$Emotion, c('joy', 'fear', 'anger')) - 1
+head(data, 5)
+```
+```{r}
+text <- data$preprocessed_comment
+# Création d'un corpus à partir de vos données prétraitées
+corpus <- Corpus(VectorSource(text))
+
+# Création d'une matrice de termes-document
+dtm <- TermDocumentMatrix(corpus)
+
+# Calcul des fréquences de termes
+term_frequencies <- sort(rowSums(as.matrix(dtm)), decreasing = TRUE)
+
+# Création d'un data frame avec les termes et leurs fréquences
+term_freq_df <- data.frame(term = names(term_frequencies), freq = term_frequencies)
+
+
+
+# Création du nuage de mots avec les mots et leurs fréquences
+wordcloud(words = term_freq_df$term, freq = term_freq_df$freq, scale=c(3,0.5), max.words=100)
+```
+```{r}
+# Liste des émotions à traiter
+emotions <- unique(data$Emotion)
+
+# Boucle pour créer un nuage de mots pour chaque émotion
+for (emotion in emotions) {
+  # Création d'un sous-ensemble pour l'émotion spécifique
+  data_subset <- data[data$Emotion == emotion, ]
+  
+  # Création d'un corpus à partir des données prétraitées
+  corpus <- Corpus(VectorSource(data_subset$preprocessed_comment))
+  
+  # Création d'une matrice de termes-document
+  dtm <- TermDocumentMatrix(corpus)
+  
+  # Calcul des fréquences de termes
+  term_frequencies <- rowSums(as.matrix(dtm))
+  
+  # Création d'un data frame avec les termes et leurs fréquences
+  term_freq_df <- data.frame(term = names(term_frequencies), freq = term_frequencies)
+  
+  # Tri des termes par fréquence décroissante
+  term_freq_df <- term_freq_df[order(-term_freq_df$freq), ]
+  
+  # Création du nuage de mots pour l'émotion spécifique
+  print(paste("Nuage de mots pour l'émotion:", emotion))
+  wordcloud(words = term_freq_df$term, freq = term_freq_df$freq, scale=c(3,0.5), max.words=200)
+}
+
+```
+#### <FONT color='#000033'> 3. Entraînement du modèle bayésien :</FONT>
+Utilisez le package e1071 R pour entraîner un classifieur bayésien naïf.
+
+
+Division en Ensembles d'Apprentissage et de Test:
+```{r}
+
+# Assurez-vous que df est votre dataframe et qu'il contient les colonnes 'preprocessed_comment' et 'Emotion_num'
+
+# Création d'un index pour le partitionnement stratifié
+set.seed(42)
+trainIndex <- createDataPartition(data$Emotion_num, p = 0.8, list = FALSE, times = 1)
+
+# Séparation des données en ensembles d'entraînement et de test
+X_train <- data$preprocessed_comment[trainIndex]
+y_train <- data$Emotion_num[trainIndex]
+X_test <- data$preprocessed_comment[-trainIndex]
+y_test <- data$Emotion_num[-trainIndex]
+```
+
+
+Assurez-vous que X_train et X_test sont disponibles et contiennent les données textuelles
+
+```{r}
+# Création d'un itérateur sur les documents
+it_train <- itoken(X_train, progressbar = FALSE)
+it_test <- itoken(X_test, progressbar = FALSE)
+```
+```{r}
+# Création du vocabulaire et du vectoriseur
+vocab <- create_vocabulary(it_train)
+vectorizer <- vocab_vectorizer(vocab)
+
+```
+```{r}
+# Transformation des données d'entraînement et de test en utilisant TF-IDF
+tfidf_transformer <- TfIdf$new()
+dtm_train <- create_dtm(it_train, vectorizer) %>%
+  tfidf_transformer$fit_transform()
+dtm_test <- create_dtm(it_test, vectorizer) %>%
+  tfidf_transformer$transform()
+
+```
+```{r}
+# Affichage des 20 premiers termes du vocabulaire
+print(head(vocab$term, 20))
+```
+```{r}
+
+```
+```{r}
+
+```
+
+Entraînement du Modèle Bayésien Naïf:
+```{r}
+# Entraînement du modèle bayésien naïf en utilisant 'Emotion' comme variable cible
+model <- naiveBayes(as.matrix(dtm_train), as.factor(y_train))
+summary(model)
+```
+
+Réalisation des Prédictions sur l'Ensemble de Test:
+```{r}
+# Utilisation du modèle entraîné pour faire des prédictions sur l'ensemble de test
+predictions <- predict(model, newdata = as.matrix(dtm_test), type = "class")
+```
+
+Aperçu des Prédictions:
+
+```{r}
+head(predictions)
+```
+Utilisons une autre modele d'une autre librairie pour comparer les deux par la suite
+```{r}
+# Assumons que dtm_train est votre Document-Term Matrix et y_train est votre vecteur de réponse
+library("naivebayes")
+
+# Entraînement du modèle Naive Bayes
+NB_model <- multinomial_naive_bayes(as.matrix(dtm_train), as.factor(y_train), laplace = 1)
+summary(NB_model)
+# NB_model est maintenant le modèle entraîné
+# Classification
+predictions2 <- predict(NB_model, newdata = as.matrix(dtm_test), type = "class")
+```
+#### <FONT color='#000033'> 4. Évaluation du modèle :</FONT>
+ Chargement du Package 'caret' pour l'Évaluation:
+```{r}
+library(caret)
+```
+Calcul des Métriques de Performance:
+```{r}
+# Conversion des prédictions et des valeurs réelles en facteurs avec les mêmes niveaux
+levels <- sort(unique(c(y_train, y_test))) # Fusion et tri des niveaux uniques dans les données d'entraînement et de test
+predictions_factor1 <- factor(predictions, levels = levels)
+predictions_factor2 <- factor(predictions2, levels = levels)
+y_test_factor <- factor(y_test, levels = levels)
+
+# Calcul de la matrice de confusion
+conf_matrix <- confusionMatrix(predictions_factor1, y_test_factor)
+# Calcul de la matrice de confusion
+conf_matrix2 <- confusionMatrix(predictions_factor2, y_test_factor)
+
+```
+```{r}
+# Affichage de la matrice de confusion 1
+print(conf_matrix)
+```
+```{r}
+# Affichage de la matrice de confusion 2
+print(conf_matrix2)
+```
+#### <FONT color='#000033'> 5. Amélioration et optimisation :</FONT>
+```{r}
+# Entraînement du modèle Bayésien Naïf avec caret pour automatiser la validation croisée
+# Utilisation de trainControl pour configurer la méthode de rééchantillonnage
+train_control <- trainControl(method = "cv", number = 5) # 5-fold cross-validation
+NB_model_cv <- train(as.matrix(dtm_train), as.factor(y_train), method = "nb", trControl = train_control, tuneLength = 5)
+
+# Résumé du modèle pour montrer les résultats de la validation croisée et le meilleur hyperparamètre
+print(NB_model_cv)
+```
+```{r}
+# Prédictions sur l'ensemble de test et évaluation
+predictions_cv <- predict(NB_model_cv, newdata = as.matrix(dtm_test))
+conf_matrix_cv <- confusionMatrix(predictions_cv, as.factor(y_test))
+
+# Affichage de la matrice de confusion et des métriques de performance
+print(conf_matrix_cv)
+```

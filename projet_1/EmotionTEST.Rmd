@@ -1,0 +1,187 @@
+---
+title: "<FONT color='#0066CC'><FONT size = 4 ><DIV align= center> Projet 1 : Classification bayésienne </DIV></FONT></FONT>"
+output:
+    html_document:
+      highlight: textmate #,, , , espresso, , , , and  default  tango  pygments monochrome  kate zenburn haddock  
+      theme:   readable  # , , flatly, , , spacelab, united, cosmo, lumen, paper, sandstone, simplex,  yeti default cerulean journal    darkl    
+      toc: yes
+      toc_depth: 6
+      toc_float: true
+---
+
+```{=html}
+<style type="text/css">
+body, td {font-size: 17px;}
+code.r{font-size: 5px;}
+pre { font-size: 15px;}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+<hr style="border: 1px  solid gray">
+
+</hr>
+
+Résumé : Nous développerons un projet de classification bayésienne en utilisant l'ensemble de 
+données sur les émotions (Kaggle) en plusieurs étapes. Nous allons employer une série de prétraitement plus complexes et éventuellement étendre l'approche bayésienne pour inclure des 
+ajustements (tuning) ou des probabilité supplémentaires.
+
+Objectif principal : Développer un classificateur bayésien pour prédire les émotions à partir de 
+données textuelles.
+
+Source des données : Jeu de données sur les émotions.
+
+<hr style="border: 1px  solid gray">
+
+#### <FONT color='#000033'> 1.  Chargement et exploration des données :  </FONT>
+ 
+## Chargez le jeu de données dans R.
+Assurons nous que nous disposons d’un environnement propre en R :
+```{r}
+rm(list = ls())
+```
+Chargement des bibliothèques nécessaires :
+```{r}
+library(kableExtra)
+library(e1071)
+library("caTools")
+library("SnowballC")
+library("tm")
+library("wordcloud")
+```
+Chargement des données
+```{r}
+setwd('C:\\Users\\HP\\Documents\\Fouilles_donnee_R\\3_mini-projets\\projet_1')
+data <- read.csv("Emotion_classify_Data.csv", stringsAsFactors = FALSE)
+```
+Affichage des 10 premières lignes du dataset
+```{r}
+head(data, 10)
+```
+
+## Effectuez une analyse exploratoire des données (EDA) pour comprendre la distribution des classes, la longueur des entrées de texte et tout autre modèle.
+Aperçu Général des Données
+```{r}
+summary(data)
+str(data)
+```
+
+Analysons la distribution des différentes émotions dans le dataset.
+
+```{r}
+table(data$Emotion)  
+barplot(table(data$Emotion), main="Distribution des Émotions", xlab="Émotions", ylab="Fréquence")
+```
+
+Calculons la longueur des entrées de texte.
+
+```{r}
+data$textLength <- sapply(data$Comment, nchar)
+length(data$textLength) == nrow(data)
+summary(data$textLength)
+hist(data$textLength, main="Distribution de la Longueur des Textes", xlab="Longueur", ylab="Fréquence")
+```
+#### <FONT color='#000033'> 2.  Prétraitement des données :  </FONT>
+Identifions les mots les plus fréquents dans le dataset.
+
+```{r}
+# Création d'un corpus à partir de la colonne 'Comment' de votre dataframe
+corpus <- VCorpus(VectorSource(data$Comment))
+```
+```{r}
+# Conversion de tout le texte en minuscules pour uniformiser les données
+corpus <- tm_map(corpus, content_transformer(tolower))
+```
+
+
+```{r}
+# Suppression des signes de ponctuation du texte
+corpus <- tm_map(corpus, removePunctuation)
+```
+```{r}
+# Suppression des chiffres du texte
+corpus <- tm_map(corpus, removeNumbers)
+```
+```{r}
+# Suppression des mots vides (stop words) en anglais (remplacez par "french" pour les données en français)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stemDocument)
+```
+```{r}
+# Création d'une matrice de termes par document (TermDocumentMatrix) à partir du corpus
+dtm <- DocumentTermMatrix(corpus)
+dtm_tfidf <- weightTfIdf(dtm)
+```
+
+```{r}
+# Conversion en dataframe pour l'entraînement
+data_tfidf <- as.data.frame(as.matrix(dtm_tfidf))
+colnames(data_tfidf) <- make.names(colnames(data_tfidf))
+data_tfidf$Emotion <- data$Emotion
+```
+```{r}
+# Calcul des fréquences des mots et tri par ordre décroissant
+word_freqs <- sort(rowSums(as.matrix(dtm_tfidf)), decreasing=TRUE)
+```
+```{r}
+# Création d'un nuage de mots avec les 100 mots les plus fréquents
+wordcloud(names(word_freqs), word_freqs, max.words=100)
+```
+
+
+#### <FONT color='#000033'> 3. Entraînement du modèle bayésien :</FONT>
+Utilisez le package e1071 R pour entraîner un classifieur bayésien naïf.
+
+Division en Ensembles d'Apprentissage et de Test:
+```{r}
+# Séparation des données en ensembles d'entraînement et de test
+set.seed(123) # Pour la reproductibilité
+split <- sample.split(data_tfidf$Emotion, SplitRatio = 0.7)
+train_data <- subset(data_tfidf, split == TRUE)
+test_data <- subset(data_tfidf, split == FALSE)
+```
+
+```{r}
+# Préparation des données pour le modèle
+train_target <- train_data$Emotion
+train_data <- train_data[, -ncol(train_data)]
+
+test_target <- test_data$Emotion
+test_data <- test_data[, -ncol(test_data)]
+```
+Entraînement du Modèle Bayésien Naïf:
+```{r}
+# Création et entraînement du modèle bayésien naïf
+model <- naiveBayes(train_data, train_target)
+```
+
+Réalisation des Prédictions sur l'Ensemble de Test:
+```{r}
+# Prédiction et évaluation sur l'ensemble de test
+predictions <- predict(model, test_data)
+tryCatch({
+  confusionMatrix <- table(predictions, test_target)
+  accuracy <- sum(diag(confusionMatrix)) / sum(confusionMatrix)
+  print(accuracy)
+}, error = function(e) {
+  print(e)
+  print("Longueur de predictions:")
+  print(length(predictions))
+  print("Longueur de test_target:")
+  print(length(test_target))
+})
+```
+Résumé du Modèle:
+```{r}
+summary(model)
+```
+Aperçu des Prédictions:
+
+```{r}
+head(predictions)
+```
+#### <FONT color='#000033'> 4. Évaluation du modèle :</FONT>
+```{r}
+print(confusionMatrix)
+```
